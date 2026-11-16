@@ -1,6 +1,7 @@
 # Dead Rising 2 for Archipelago
 
-<img width="400" height="120" alt="image" src="https://github.com/user-attachments/assets/f9b6cf0d-1671-484a-9324-4eba2c105f56" />
+<img width="400" height="200" alt="image" src="https://github.com/user-attachments/assets/9a691570-b098-4149-848e-d556883e621a" />
+
 
 
 
