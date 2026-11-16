@@ -1,0 +1,26 @@
+# Build output
+build/
+*.asi
+*.dll
+*.apworld
+__pycache__/
+check/unit/harness
+
+# Game files and anything made from them. Never commit these: they are Capcom's.
+data/
+*.big
+*.bcs
+missions*.txt
+
+# Game art. The client works without icon.png.
+poptracker/
+apworld/dr2/icon.png
+
+# Personal
+save_backups/
+*.DR2S
+*.log
+*.CT
+
+# Superseded by Loader.cpp + Core.cpp
+DR2AP.cpp
