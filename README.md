@@ -1,6 +1,7 @@
 # Dead Rising 2 for Archipelago
 
-<img width="840" height="244" alt="image" src="https://github.com/user-attachments/assets/9135d9cd-30fd-4b41-9f5e-0121be78dcf1" />
+<img width="400" height="120" alt="image" src="https://github.com/user-attachments/assets/f9b6cf0d-1671-484a-9324-4eba2c105f56" />
+
 
 
 An [Archipelago](https://archipelago.gg) multiworld randomizer for **Dead Rising 2** (PC, Steam).
