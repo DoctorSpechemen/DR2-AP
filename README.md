@@ -63,23 +63,25 @@ Needs Windows and Visual Studio 2022 with "Desktop development with C++".
 The mod adds one hidden mission, `AP_Bridge`, to the game's mission file, and four lines of text for the
 phone call. The game's own missions are left exactly as they are.
 
-```
-python tools/unpack.py  "<game>/data/datafile.big" unpacked
-python tools/build_ap_mission.py unpacked/missions.txt missions_ap.txt
-python tools/repack.py  "<game>/data/datafile.big" datafile_ap.big missions.txt=missions_ap.txt
-python tools/strings_tool.py "<game>/data/frontend/str_en.bcs" str_en_ap.bcs ^
-    "88801=Mr. Archipelago" "88802=Frank?" "88803=No? This is Chuck." "88804=My bad, wrong number."
-```
+With the game closed, run `tools/patch_game.bat` (it needs Python 3). It builds both files from your own
+game files, puts them in place, and keeps the originals beside them as `<name>.original`. Running it again
+is harmless: it always starts from the originals. `tools/restore_game.bat` puts the originals back.
 
-Keep the originals, then put `datafile_ap.big` in place of `data/datafile.big` and `str_en_ap.bcs` in place of
-`data/frontend/str_en.bcs`. Do this with the game closed.
+If the game is not in the usual Steam folder, drag the game folder onto the `.bat` file, or run
+`python tools/patch_game.py "<game folder>"`.
+
+The steps it runs are `unpack.py`, `build_ap_mission.py`, `repack.py` and `strings_tool.py`, which can also
+be used one at a time.
+
+Besides `AP_Bridge` the data currently carries one small test mission, `AP_GateTest`. It does nothing unless
+it is triggered by hand, and it will be removed at the next change that needs a fresh save anyway.
 
 **Do not change the data file in the middle of a playthrough.** See "Rules learned the hard way" in `NOTES.md`.
 
 ## Installing and playing
 
 1. Game folder: `dinput8.dll` (Ultimate ASI Loader), `DR2Fix.asi` (ClownDR2Fix), `DR2AP.asi`, `DR2AP_core.dll`
-   and `assets/dr2_ap_chime.wav`, plus the two patched data files above.
+   and `assets/dr2_ap_chime.wav`. Then patch the game data as above.
 2. Zip the `apworld/dr2` folder as `dr2.apworld` and put it in Archipelago's `custom_worlds` folder. Tested
    against Archipelago 0.6.8.
 3. Generate a game, start **Dead Rising 2 Client** from the Archipelago Launcher and connect.

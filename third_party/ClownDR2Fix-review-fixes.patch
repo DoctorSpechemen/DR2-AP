@@ -1,0 +1,185 @@
+diff --git a/DR2Fix/Controller.cpp b/DR2Fix/Controller.cpp
+index 3c597ee..6fdcd71 100644
+--- a/DR2Fix/Controller.cpp
++++ b/DR2Fix/Controller.cpp
+@@ -10,7 +10,8 @@
+ 
+ static double (__cdecl *GetTimeForTick)(_LARGE_INTEGER Tick);
+ static SDL_Gamepad *gamepads[4];
+-static DWORD packet_number;
++static DWORD packet_numbers[std::size(gamepads)];
++static XINPUT_GAMEPAD previous_states[std::size(gamepads)];
+ 
+ static void ProcessEvents() {
+     SDL_Event event;
+@@ -85,8 +86,6 @@ static DWORD __stdcall GetControllerState(const DWORD player_index, XINPUT_STATE
+     return GamepadFromPlayerIndex(player_index,
+         [&](SDL_Gamepad* const gamepad)
+         {
+-            output_state->dwPacketNumber = packet_number++; // TODO: Only increment this when there have been changes!
+-
+             const auto &DoButton = [&](const unsigned int bit, const SDL_GamepadButton button)
+             {
+                 output_state->Gamepad.wButtons |= static_cast<unsigned int>(SDL_GetGamepadButton(gamepad, button)) << bit;
+@@ -118,6 +117,24 @@ static DWORD __stdcall GetControllerState(const DWORD player_index, XINPUT_STATE
+             output_state->Gamepad.sThumbLY = ~SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_LEFTY);
+             output_state->Gamepad.sThumbRX =  SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_RIGHTX);
+             output_state->Gamepad.sThumbRY = ~SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_RIGHTY);
++
++            // Like real XInput, only change the packet number when the controller's state has changed.
++            XINPUT_GAMEPAD &previous_state = previous_states[player_index];
++            const XINPUT_GAMEPAD &state = output_state->Gamepad;
++            const bool changed = state.wButtons != previous_state.wButtons
++                || state.bLeftTrigger != previous_state.bLeftTrigger
++                || state.bRightTrigger != previous_state.bRightTrigger
++                || state.sThumbLX != previous_state.sThumbLX
++                || state.sThumbLY != previous_state.sThumbLY
++                || state.sThumbRX != previous_state.sThumbRX
++                || state.sThumbRY != previous_state.sThumbRY;
++
++            if (changed) {
++                previous_state = state;
++                ++packet_numbers[player_index];
++            }
++
++            output_state->dwPacketNumber = packet_numbers[player_index];
+         }
+     );
+ }
+diff --git a/DR2Fix/DllMain.cpp b/DR2Fix/DllMain.cpp
+index 88bd5d9..b930230 100644
+--- a/DR2Fix/DllMain.cpp
++++ b/DR2Fix/DllMain.cpp
+@@ -7,7 +7,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved) {
+ 		DisableThreadLibraryCalls(hModule);
+ 		break;
+ 	case DLL_PROCESS_DETACH:
+-		FreeLibraryAndExitThread(hModule, TRUE);
++		// Nothing to do. In particular, do not call 'FreeLibraryAndExitThread' here: this runs under the
++		// loader lock, and exiting the thread aborts the shutdown of every module that comes after us.
+ 		break;
+ 	case DLL_THREAD_ATTACH:
+ 		break;
+diff --git a/DR2Fix/GPU.cpp b/DR2Fix/GPU.cpp
+index bef281a..7fb50e2 100644
+--- a/DR2Fix/GPU.cpp
++++ b/DR2Fix/GPU.cpp
+@@ -7,28 +7,34 @@
+ static IDirect3DDevice9* pDevice;
+ static char** GraphicsInst;
+ static int* DrawInst;
+-static short D3DDeviceOffset = 0x198;
++static const short D3DDeviceOffset = 0x198;
+ static D3DRENDERSTATETYPE AlphaRS;
+ static DWORD AlphaRSValue;
+ static void (*InitShaders)();
+ 
+ static void GetGPUVendor() {
+-    if (General::IsOTR) D3DDeviceOffset += 0x100;
++    // Computed locally so that this function is safe to run more than once.
++    const short DeviceOffset = D3DDeviceOffset + (General::IsOTR ? 0x100 : 0);
+ 
+-    pDevice = *(IDirect3DDevice9**)(GPU::GetGraphicsInst() + D3DDeviceOffset);
++    pDevice = *(IDirect3DDevice9**)(GPU::GetGraphicsInst() + DeviceOffset);
+     if (pDevice) {
+-        IDirect3D9* pD3D;
+-        pDevice->GetDirect3D(&pD3D);
+-        D3DDEVICE_CREATION_PARAMETERS Params = {};
+-        D3DADAPTER_IDENTIFIER9 Identifier = {};
+-        pD3D->GetAdapterIdentifier(Params.AdapterOrdinal, 0, &Identifier);
+-        if (Identifier.VendorId == 0x1002) { // AMD
+-            AlphaRS = D3DRS_POINTSIZE;
+-            AlphaRSValue = MAKEFOURCC('A','2','M','1');
+-        }
+-        else if (Identifier.VendorId == 0x10DE) { // NVIDIA
+-            AlphaRS = D3DRS_ADAPTIVETESS_Y;
+-            AlphaRSValue = MAKEFOURCC('A','T','O','C');
++        IDirect3D9* pD3D = nullptr;
++        if (SUCCEEDED(pDevice->GetDirect3D(&pD3D)) && pD3D) {
++            // Ask which adapter the device was actually created on; it is not always adapter 0
++            // (laptops with both integrated and dedicated graphics, multi-GPU desktops).
++            D3DDEVICE_CREATION_PARAMETERS Params = {};
++            pDevice->GetCreationParameters(&Params);
++            D3DADAPTER_IDENTIFIER9 Identifier = {};
++            pD3D->GetAdapterIdentifier(Params.AdapterOrdinal, 0, &Identifier);
++            if (Identifier.VendorId == 0x1002) { // AMD
++                AlphaRS = D3DRS_POINTSIZE;
++                AlphaRSValue = MAKEFOURCC('A','2','M','1');
++            }
++            else if (Identifier.VendorId == 0x10DE) { // NVIDIA
++                AlphaRS = D3DRS_ADAPTIVETESS_Y;
++                AlphaRSValue = MAKEFOURCC('A','T','O','C');
++            }
++            pD3D->Release(); // 'GetDirect3D' adds a reference.
+         }
+     }
+     InitShaders();
+@@ -37,11 +43,15 @@ static void GetGPUVendor() {
+ static void FixRenderStates(safetyhook::Context32& ctx) {
+     if (!pDevice) return;
+ 
+-    DWORD AlphaRef, AlphaTest;
+-    pDevice->GetRenderState(D3DRS_ALPHAREF, &AlphaRef);
+-    pDevice->GetRenderState(D3DRS_ALPHATESTENABLE, &AlphaTest);
+-    if (AlphaTest == 1 && AlphaRef != 0) pDevice->SetRenderState(AlphaRS, AlphaRSValue);
+-    else pDevice->SetRenderState(AlphaRS, 0); // this needs manual resetting because it's a state the game doesn't set
++    // 'AlphaRS' is only set for vendors with a known alpha-to-coverage hack; skip the rest (e.g. Intel)
++    // instead of setting render state 0, which is not a valid state.
++    if (AlphaRS != 0) {
++        DWORD AlphaRef = 0, AlphaTest = 0;
++        pDevice->GetRenderState(D3DRS_ALPHAREF, &AlphaRef);
++        pDevice->GetRenderState(D3DRS_ALPHATESTENABLE, &AlphaTest);
++        if (AlphaTest == 1 && AlphaRef != 0) pDevice->SetRenderState(AlphaRS, AlphaRSValue);
++        else pDevice->SetRenderState(AlphaRS, 0); // this needs manual resetting because it's a state the game doesn't set
++    }
+ 
+     LPDIRECT3DSURFACE9 pRenderTarget = nullptr;
+     pDevice->GetRenderTarget(0, &pRenderTarget);
+diff --git a/DR2Fix/Settings.cpp b/DR2Fix/Settings.cpp
+index c35ff6d..2c8706f 100644
+--- a/DR2Fix/Settings.cpp
++++ b/DR2Fix/Settings.cpp
+@@ -1,6 +1,7 @@
+ #include "Settings.h"
+ 
+-static BOOL *SettingsInitialized;
++// A set of 'has this static been initialised?' bit flags; bit 0 belongs to the settings object.
++static DWORD *SettingsInitialized;
+ static void *SettingsObject;
+ static void (__fastcall *ResetSettings)(void *self, void* dummy);
+ static void* (__fastcall *GetSettingInternal)(void *self, void* dummy, Settings::Value setting);
+@@ -10,15 +11,17 @@ void Settings::Install() {
+     // This function is inlined in the EXE, so we cannot use it as-is.
+     auto Pattern = Utils::FindPattern("F6 05 ? ? ? ? 01 75 11 83 0D ? ? ? ? 01 B9 ? ? ? ? E8 ? ? ? ? 6A 00");
+ 
+-    SettingsInitialized = *static_cast<BOOL**>(Pattern.get_first(2));
++    SettingsInitialized = *static_cast<DWORD**>(Pattern.get_first(2));
+     SettingsObject = *static_cast<void**>(Pattern.get_first(17));
+     ResetSettings = static_cast<decltype(ResetSettings)>(ReadCallFrom(Pattern.get_first(21)));
+     GetSettingInternal = static_cast<decltype(GetSettingInternal)>(ReadCallFrom(Pattern.get_first(33)));
+ }
+ 
+ void* Settings::GetValue(Value setting) {
+-    if (!*SettingsInitialized) {
+-        *SettingsInitialized = TRUE;
++    // Match the game's own check ('test byte ptr [flags], 1' / 'or dword ptr [flags], 1'):
++    // only bit 0 is ours, so the other bits must be neither tested nor overwritten.
++    if ((*SettingsInitialized & 1) == 0) {
++        *SettingsInitialized |= 1;
+         ResetSettings(SettingsObject, nullptr);
+     }
+ 
+diff --git a/DR2Fix/Timing.cpp b/DR2Fix/Timing.cpp
+index ae999c1..255fb69 100644
+--- a/DR2Fix/Timing.cpp
++++ b/DR2Fix/Timing.cpp
+@@ -55,7 +55,8 @@ void Timing::Install() {
+         static int eip = (int)Pattern.get_first(0x08);
+         static auto MBStrengthFix = safetyhook::create_mid(Pattern.get_first(), [](SafetyHookContext& ctx) {
+             static float BaseStrength = 0.20;
+-            ctx.xmm0.f32[0] = BaseStrength / FrametimeCorrection;
++            // 'FrametimeCorrection' is zero until the first tick (and on a zero-length frame); avoid dividing by it.
++            ctx.xmm0.f32[0] = FrametimeCorrection > 0.0f ? BaseStrength / FrametimeCorrection : BaseStrength;
+             ctx.eip = eip;
+             });
+     }

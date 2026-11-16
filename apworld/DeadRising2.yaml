@@ -1,0 +1,15 @@
+name: Chuck
+description: Dead Rising 2 test build
+game: Dead Rising 2
+Dead Rising 2:
+  goal: the_facts
+  timer_mode: vanilla
+  case_gate_items: false
+  survivors_never_expire: true
+  include_psychopaths: true
+  include_survivors: true
+  kill_milestones: 10
+  level_checks: 20
+  zombrex_checks: 4
+  trap_percentage: 20
+  death_link: false
