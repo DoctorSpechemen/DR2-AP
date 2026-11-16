@@ -14,8 +14,8 @@ This project is not affiliated with or endorsed by Capcom. **No game files are i
 copy of Dead Rising 2 on Steam, and the tools here patch your own files.
 
 ---
-
-# AI DISCLOSURE: PLEASE READ
+[!disclaimer]
+# AI DISCLOSURE
 
 **This project is made with heavy use of AI. Almost all of the code in this repository was written by
 Claude, an AI model made by Anthropic, working with DoctorSpechemen.**
